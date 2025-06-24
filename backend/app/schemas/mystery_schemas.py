@@ -1,4 +1,4 @@
-from pydantic import ConfigDict, HttpUrl, StringConstraints
+from pydantic import ConfigDict, Field, HttpUrl, StringConstraints
 from typing import Annotated, List, Optional, Any, Dict
 from datetime import date, datetime
 from app.schemas.base_schema import BaseSchema, IDModelMixin
@@ -22,6 +22,16 @@ class DailyMysteryBase(BaseSchema):
     image_style_id: int
     base_image_urls: Optional[List[HttpUrl]] = None
     initial_choices_pool: List[str]
+
+
+class DailyMysteryDisplayForUser(BaseSchema):
+    daily_mystery_id: int
+    theme: str = Field(..., description="The theme/title of today's mystery.")
+    base_story_text: str
+    base_image_urls: Optional[List[HttpUrl]] = None
+    character_dossiers: Optional[List[CharacterDossierItem]] = None
+    initial_choices: List[str] = Field(
+        ..., description="Three randomly selected initial actions for the player.")
 
 
 class DailyMysteryCreate(DailyMysteryBase):
