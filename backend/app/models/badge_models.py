@@ -12,7 +12,7 @@ class Badge(IdMixinBase):
     criteria: Mapped[dict] = mapped_column(JSON, nullable=True)
 
     user_associations = relationship(
-        "UserBadge", back_populates="badge", cascade="all, delete-orphan")
+        "app.models.badge_models.UserBadge", back_populates="badge", cascade="all, delete-orphan")
 
 
 class UserBadge(BaseModel):

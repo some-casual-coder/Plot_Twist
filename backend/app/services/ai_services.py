@@ -67,10 +67,11 @@ async def _call_gemini_model_with_config(
         ]
 
         config_constructor_args = {
-            "temperature": temperature,
+            "temperature": 0.8,
             "max_output_tokens": max_output_tokens,
             "safety_settings": safety_settings_list,
-            # top_k, top_p
+            "top_p": 0.85,
+            "top_k": 40
         }
 
         if system_instruction_text:
@@ -111,9 +112,6 @@ async def _call_gemini_model_with_config(
             print(
                 f"ERROR: Gemini response did not contain usable text. Response: {response}")
             raise ValueError("Gemini response was empty or malformed.")
-
-        print(
-            f"DEBUG: Gemini SDK Response Text (first 500 chars): {generated_text[:500]}")
 
         if is_json_output_expected:
             clean_text = generated_text.strip()

@@ -5,6 +5,7 @@ from typing import Optional
 class Settings(BaseSettings):
     PROJECT_NAME: str = "PlotTwist API"
     API_V1_STR: str = "/api/v1"
+    SQLALCHEMY_ECHO: bool = True
 
     # Database
     DATABASE_URL: str
