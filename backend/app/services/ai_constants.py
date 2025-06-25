@@ -60,6 +60,35 @@ The JSON object must strictly adhere to the schema provided in the user prompt, 
 Pay close attention to array and object structures.
 """
 
+TASK_INSTRUCTION_FINAL = """
+TASK: Provide a concluding narration. Address the player directly.
+Explain the Actual Hidden Solution in detail.
+Compare the player's path (summarized in their journey or implied by their final choice) to the Actual Hidden Solution.
+Offer a fun or insightful comment on how close they were or how they were misled.
+The visual style for any accompanying image should be: "{image_style_modifier}"
+
+Output a JSON object with these exact keys:
+- "scenario_text": String (The concluding narration and explanation, approx 150-250 words.)
+- "image_prompt": String (A DALL-E style prompt for an image depicting the solution or a key moment from it, fitting the visual style: "{image_style_modifier}".)
+- "choices": Array (An empty array, as there are no more choices.)
+- "is_final_round": Boolean (This MUST be true.)
+- "solution_explanation": String (This should be the same as "scenario_text" for this final response, as it contains the full solution explanation.)
+"""
+
+TASK_INSTRUCTION_ROUND = """
+TASK: Based on all the context (Base, Solution, Journey, Previous Scenario, Player's Action), generate the next part of the interactive story.
+The story should be a logical consequence of the player's action.
+Subtly weave in clues or red herrings that are consistent with the (hidden) Actual Hidden Solution.
+The visual style for any accompanying image should be: "{image_style_modifier}"
+
+Output a JSON object with these exact keys:
+- "scenario_text": String (The new story segment, approx 100-150 words.)
+- "image_prompt": String (A DALL-E style prompt for an image depicting this new scenario, fitting the visual style: "{image_style_modifier}".)
+- "choices": Array (Exactly 3 distinct, plausible string actions the player can take next. Phrase them like "You decide to...", "You examine...", "You ask about...". Each choice should be a complete sentence.)
+- "is_final_round": Boolean (This MUST be false, as it's not round {MAX_ROUNDS}.)
+- "solution_explanation": null (A JSON null value, as the solution is not revealed yet.)
+"""
+
 MYSTERY_TYPES = [
     "Classic Murder Mystery: Whodunit",
     "Theft/Heist: Who stole the MacGuffin?",

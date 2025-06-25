@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
@@ -12,6 +13,8 @@ from app.services.ai_constants import *
 
 
 master_gemini_client: Optional[genai.Client] = None
+logger = logging.getLogger(__name__)
+
 
 if settings.GEMINI_API_KEY:
     try:
@@ -190,70 +193,6 @@ async def generate_daily_mystery_content(theme: str, image_style_modifier: str) 
             status_code=503, detail=f"AI service currently unavailable for daily content: {type(e).__name__}")
 
 
-async def generate_next_scenario_content(
-    base_story_summary: str,
-    actual_solution: str,
-    user_choice: str,
-    current_scenario_text: Optional[str],
-    image_style_modifier: str,
-    current_round: int
-) -> Dict[str, Any]:
-    print(
-        f"AI Service: Generating next scenario using google-genai SDK. Round: {current_round}. Choice: '{user_choice}'")
-    system_instruction_text = """
-You are a game master for an interactive mystery story.
-Your output MUST be a single, valid JSON object, without any surrounding text or markdown.
-The JSON object should conform to the structure specified in the user's prompt.
-"""
-    if current_round >= 5:
-        prompt = f"""
-CONTEXT:
-Mystery Base: "{base_story_summary}"
-Actual Solution: "{actual_solution}"
-Player completed 5 rounds. Last choice: "{user_choice}".
-Previous scenario: "{current_scenario_text if current_scenario_text else 'Initial story context.'}"
-
-TASK: Provide a concluding narration. Address the player. Explain their path relative to the actual solution.
-Output a JSON object with keys: "scenario_text"(String: Concluding narration, 100-150 words), "image_prompt"(String: DALL-E prompt for final scene, style "{image_style_modifier}"), "choices"(Empty Array), "is_final_round"(Boolean: true), "solution_explanation"(String: Same as scenario_text for this final response).
-"""
-    else:
-        prompt = f"""
-CONTEXT:
-Visual Style: "{image_style_modifier}"
-Mystery Base: "{base_story_summary}"
-Actual Hidden Solution: "{actual_solution}" (DO NOT REVEAL. Use to guide story/clues/red herrings based on user's choice.)
-Current Round: {current_round}
-Previous scenario: "{current_scenario_text if current_scenario_text else 'Initial story context.'}"
-Player's chosen action: "{user_choice}"
-
-TASK: Generate the next part of the story.
-Output a JSON object with keys: "scenario_text"(String: Story consequence, 100-150 words), "image_prompt"(String: DALL-E prompt for new scenario, style "{image_style_modifier}"), "choices"(Array of 3 Strings: Plausible next actions), "is_final_round"(Boolean: false), "solution_explanation"(null).
-"""
-    try:
-        response_json = await _call_gemini_model_with_config(
-            prompt_text=prompt,
-            system_instruction_text=system_instruction_text,
-            temperature=0.7,
-            max_output_tokens=2048,
-            is_json_output_expected=True
-        )
-
-        expected_keys_next = ["scenario_text", "image_prompt",
-                              "choices", "is_final_round", "solution_explanation"]
-        for key in expected_keys_next:
-            if key not in response_json:
-                print(
-                    f"ERROR: Gemini response for next scenario missing key '{key}'. Full JSON: {json.dumps(response_json, indent=2)}")
-                raise ValueError(
-                    f"Gemini response missing expected key: {key} in next scenario.")
-        return response_json
-    except Exception as e:
-        print(f"ERROR in generate_next_scenario_content: {e}")
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=503, detail=f"AI service currently unavailable for next scenario: {type(e).__name__}")
-
-
 async def generate_theme_and_art_style_for_mystery_type(
     mystery_type: str
 ) -> Dict[str, str]:
@@ -317,3 +256,84 @@ async def generate_theme_and_art_style_for_mystery_type(
         traceback.print_exc()
         raise ConnectionError(
             f"Unexpected error during AI theme/style generation: {type(e).__name__}")
+
+
+async def generate_next_scenario_content(
+    base_story_summary: str,
+    actual_solution: str,
+    user_choice: str,
+    current_scenario_text: Optional[str],
+    image_style_modifier: str,
+    current_round: int,
+    history_summary: Optional[str] = None
+) -> Dict[str, Any]:
+    logger.debug(
+        f"AI Service: Generating next scenario. Round: {current_round}. Choice: '{user_choice}'. History provided: {bool(history_summary)}"
+    )
+
+    prompt_context_parts = [
+        f"Mystery Base: \"{base_story_summary}\"",
+        f"Actual Hidden Solution: \"{actual_solution}\" (This is the true answer. DO NOT REVEAL IT to the player. Use it to guide the story, clues, and red herrings based on the player's choices. Ensure the narrative is consistent with this solution.)",
+    ]
+    if history_summary:
+        prompt_context_parts.append(
+            f"\nPlayer's Journey So Far:\n{history_summary}")
+
+    if current_round >= settings.MAX_ROUNDS:
+        prompt_context_parts.append(
+            f"\nPlayer has completed {settings.MAX_ROUNDS} rounds. The game concludes now.")
+        prompt_context_parts.append(
+            f"Last presented scenario before this conclusion: \"{current_scenario_text if current_scenario_text else 'Initial story context.'}\"")
+        prompt_context_parts.append(
+            f"Player's final choice was: \"{user_choice}\"")
+
+        task_instruction = TASK_INSTRUCTION_FINAL.format(
+            image_style_modifier=image_style_modifier
+        )
+    else:
+        prompt_context_parts.append(
+            f"\nCurrent Round to Generate: {current_round}")
+        prompt_context_parts.append(
+            f"Previously Displayed Scenario (that led to player's current choice): \"{current_scenario_text if current_scenario_text else 'This is the initial interaction after the base story.'}\"")
+        prompt_context_parts.append(
+            f"Player's Chosen Action from that scenario: \"{user_choice}\"")
+
+        task_instruction = TASK_INSTRUCTION_ROUND.format(
+            image_style_modifier=image_style_modifier,
+            MAX_ROUNDS=settings.MAX_ROUNDS
+        )
+
+    full_prompt_text = "\n".join(
+        prompt_context_parts) + "\n\n" + task_instruction
+
+    try:
+        response_json = await _call_gemini_model_with_config(
+            prompt_text=full_prompt_text,
+            system_instruction_text=SYSTEM_INSTRUCTION_JSON_OUTPUT,
+            temperature=0.8,
+            max_output_tokens=2048,
+            is_json_output_expected=True
+        )
+        if not isinstance(response_json.get("is_final_round"), bool):
+            raise ValueError(
+                "AI response for 'is_final_round' was not a boolean.")
+        if response_json.get("is_final_round") is False and response_json.get("solution_explanation") is not None:
+            raise ValueError(
+                "AI set 'solution_explanation' when 'is_final_round' is false.")
+        if not isinstance(response_json.get("choices"), list):
+            raise ValueError("AI response for 'choices' was not a list.")
+        if response_json.get("is_final_round") is False and len(response_json.get("choices", [])) != 3:
+            logger.warning(
+                f"AI returned {len(response_json.get('choices', []))} choices instead of 3 for a non-final round. Trying to adapt or will raise error.")
+            if len(response_json.get("choices", [])) != 3:
+                raise ValueError(
+                    "AI did not return exactly 3 choices for a non-final round.")
+
+        return response_json
+    except Exception as e:
+        logger.error(
+            f"ERROR in generate_next_scenario_content: {e}", exc_info=True)
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(
+            status_code=503, detail=f"AI service currently unavailable for next scenario: {type(e).__name__}")

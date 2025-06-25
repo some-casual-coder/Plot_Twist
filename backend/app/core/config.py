@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_NAME: Optional[str] = None
     AWS_S3_REGION_NAME: Optional[str] = None
 
+    # Gameplay
+    MAX_ROUNDS: int = 5
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
